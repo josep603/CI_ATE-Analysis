@@ -1,0 +1,447 @@
+---
+title: "Causal Inference Analysis: ATE Analysis for Smoking Cessation & Legislator Response Patterns"
+author: "Bibin Joseph"
+format: pdf
+fontsize: 9pt
+editor: visual
+---
+
+## Causal Inference Analysis: Smoking Cessation & Legislator Response Patterns
+
+## **Overview**
+
+This project applies causal inference techniques to two datasets:
+
+1.  **National Health and Nutrition Examination Follow-up Study (NHEFS)** – to estimate the effect of smoking cessation on weight change and blood pressure.
+
+2.  **Legislator Email Response Dataset** – to examine whether the race of a legislator influences their likelihood of responding to constituent emails.
+
+The analyses focus on estimating the **Average Treatment Effect (ATE)** using unadjusted methods and summarizing key findings.
+
+```{r,echo=FALSE,message=FALSE}
+# Load necessary libraries
+library(causaldata)
+library(tableone)
+library(dplyr)
+library(tibble)
+library(gt)
+library(knitr)
+library(labelled)
+# Load the nhefs & blackpoliticians dataset
+data(nhefs)
+View(nhefs)
+data(black_politicians)
+View(black_politicians)
+```
+
+## The Effect of Smoking Cessation on Health
+
+The dataset is first cleaned by selecting relevant variables, transforming categorical variables into factors, and labeling them for clarity.
+
+```{r,echo=FALSE,warning=FALSE,message=FALSE,include=FALSE}
+
+# Load necessary libraries
+library(dplyr)
+library(tableone)
+library(knitr)
+
+# Select only baseline variables from 1971
+nhefs_1971 <- nhefs %>%
+  select(seqn, qsmk, sex, age, race, income, marital, school, education, ht, wt71, wt82_71, sbp, dbp, birthplace, 
+         smokeintensity, smokeyrs, asthma, bronch, tb, hf, hbp, pepticulcer, colitis, hepatitis, 
+         chroniccough, hayfever, diabetes, polio, tumor, nervousbreak, alcoholpy, alcoholfreq, 
+         alcoholtype, alcoholhowmuch, pica, headache, otherpain, weakheart, allergies, nerves, 
+         lackpep, hbpmed, boweltrouble, wtloss, infection, active, exercise, birthcontrol, 
+         pregnancies, cholesterol, price71, tax71)
+
+
+# Convert categorical variables to factors and assign meaningful labels
+nhefs_1971 <- nhefs_1971 %>%
+  mutate(
+    # Treatment variable: Quit smoking between first questionnaire and 1982
+    qsmk = factor(qsmk, levels = c(0, 1), labels = c("No", "Yes")),
+    
+    # Demographic variables
+    sex = factor(sex, levels = c(0, 1), labels = c("Male", "Female")),
+    race = factor(race, levels = c(0, 1), labels = c("White", "Black or Other")),
+    
+    # Income category
+    income = factor(income, levels = c(11:22),
+                    labels = c("<$1000", "$1000–1999", "$2000–2999", "$3000–3999", "$4000–4999", 
+                               "$5000–5999", "$6000–6999", "$7000–7999", "$8000–9999", "$10000–14999", 
+                               "$15000–24999", "$25000+")),
+    
+    # Marital status
+    marital = factor(marital, levels = c(1, 2, 3, 4, 5, 6, 8), 
+                     labels = c("Under 17", "Married", "Widowed", "Never married", "Divorced", 
+                                "Separated", "Unknown")),
+    
+    # Education level
+    education = factor(education, levels = c(1, 2, 3, 4, 5), 
+                       labels = c("8th grade or less", "High School dropout", "High School", 
+                                  "College dropout", "College or more")),
+    
+    # Health conditions (binary indicators)
+    asthma = factor(asthma, levels = c(0, 1), labels = c("Never", "Ever")),
+    bronch = factor(bronch, levels = c(0, 1), labels = c("Never", "Ever")),
+    tb = factor(tb, levels = c(0, 1), labels = c("Never", "Ever")),
+    hf = factor(hf, levels = c(0, 1), labels = c("Never", "Ever")),
+    hbp = factor(hbp, levels = c(0, 1, 2), labels = c("Never", "Ever", "Missing")),
+    pepticulcer = factor(pepticulcer, levels = c(0, 1), labels = c("Never", "Ever")),
+    colitis = factor(colitis, levels = c(0, 1), labels = c("Never", "Ever")),
+    hepatitis = factor(hepatitis, levels = c(0, 1), labels = c("Never", "Ever")),
+    chroniccough = factor(chroniccough, levels = c(0, 1), labels = c("Never", "Ever")),
+    hayfever = factor(hayfever, levels = c(0, 1), labels = c("Never", "Ever")),
+    diabetes = factor(diabetes, levels = c(0, 1, 2), labels = c("Never", "Ever", "Missing")),
+    polio = factor(polio, levels = c(0, 1), labels = c("Never", "Ever")),
+    tumor = factor(tumor, levels = c(0, 1), labels = c("Never", "Ever")),
+    nervousbreak = factor(nervousbreak, levels = c(0, 1), labels = c("Never", "Ever")),
+    
+    # Lifestyle variables
+    alcoholpy = factor(alcoholpy, levels = c(0, 1, 2), labels = c("Never", "Ever", "Missing")),
+    alcoholfreq = factor(alcoholfreq, levels = c(0, 1, 2, 3), 
+                         labels = c("Almost every day", "2-3 times/week", "1-4 times/month", 
+                                    "<12 times/year")),
+    alcoholtype = factor(alcoholtype, levels = c(1, 2, 3, 4), 
+                         labels = c("Beer", "Wine", "Liquor", "Other/Unknown")),
+    pica = factor(pica, levels = c(0, 1, 2), labels = c("Never", "Ever", "Missing")),
+    
+    # Medications and conditions
+    headache = factor(headache, levels = c(0, 1), labels = c("Never", "Ever")),
+    otherpain = factor(otherpain, levels = c(0, 1), labels = c("Never", "Ever")),
+    weakheart = factor(weakheart, levels = c(0, 1), labels = c("Never", "Ever")),
+    allergies = factor(allergies, levels = c(0, 1), labels = c("Never", "Ever")),
+    nerves = factor(nerves, levels = c(0, 1), labels = c("Never", "Ever")),
+    lackpep = factor(lackpep, levels = c(0, 1), labels = c("Never", "Ever")),
+    hbpmed = factor(hbpmed, levels = c(0, 1, 2), labels = c("Never", "Ever", "Missing")),
+    boweltrouble = factor(boweltrouble, levels = c(0, 1, 2), labels = c("Never", "Ever", "Missing")),
+    wtloss = factor(wtloss, levels = c(0, 1), labels = c("Never", "Ever")),
+    infection = factor(infection, levels = c(0, 1), labels = c("Never", "Ever")),
+    
+    # Physical activity
+    active = factor(active, levels = c(0, 1, 2), 
+                    labels = c("Very active", "Moderately active", "Inactive")),
+    exercise = factor(exercise, levels = c(0, 1, 2), 
+                      labels = c("Much exercise", "Moderate exercise", "Little or no exercise"))
+  )
+
+
+# Assign meaningful labels to variables
+nhefs_1971 <- set_variable_labels(nhefs_1971,
+  active = "In your usual day, how active are you?",
+  age = "Age in 1971",
+  alcoholfreq = "How often do you drink?",
+  alcoholhowmuch = "When you drink, how much do you drink?",
+  alcoholpy = "Have you had 1 drink past year?",
+  alcoholtype = "Which do you most frequently drink?",
+  allergies = "Use allergies medication in 1971",
+  asthma = "Diagnosed asthma in 1971",
+  birthcontrol = "Birth control pills past 6 months?",
+  boweltrouble = "Use bowel trouble medication in 1971",
+  bronch = "Diagnosed chronic bronchitis/emphysema in 1971",
+  cholesterol = "Serum cholesterol (mg/100ml) in 1971",
+  chroniccough = "Diagnosed chronic cough in 1971",
+  colitis = "Diagnosed colitis in 1971",
+  dbp = "Diastolic blood pressure in 1982",
+  diabetes = "Diagnosed diabetes in 1971",
+  education = "Amount of education in 1971",
+  exercise = "In recreation, how much exercise?",
+  hayfever = "Diagnosed hay fever in 1971",
+  hbp = "Diagnosed high blood pressure in 1971",
+  hbpmed = "Use high blood pressure medication in 1971",
+  headache = "Use headache medication in 1971",
+  hepatitis = "Diagnosed hepatitis in 1971",
+  hf = "Diagnosed heart failure in 1971",
+  ht = "Height in centimeters in 1971",
+  income = "Total family income in 1971",
+  infection = "Use infection medication in 1971",
+  lackpep = "Use lack of pep medication in 1971",
+  marital = "Marital status in 1971",
+  nerves = "Use nerves medication in 1971",
+  nervousbreak = "Diagnosed nervous breakdown in 1971",
+  otherpain = "Use other pains medication in 1971",
+  pepticulcer = "Diagnosed peptic ulcer in 1971",
+  pica = "Do you eat dirt or clay, starch or other non-standard food?",
+  polio = "Diagnosed polio in 1971",
+  pregnancies = "Total number of pregnancies?",
+  qsmk = "Quit smoking between 1st questionnaire and 1982",
+  race = "Race in 1971",
+  sbp = "Systolic blood pressure in 1982",
+  school = "Highest grade of regular school ever in 1971",
+  sex = "Sex",
+  smokeintensity = "Number of cigarettes smoked per day in 1971",
+  tb = "Diagnosed tuberculosis in 1971",
+  tumor = "Diagnosed malignant tumor/growth in 1971",
+  weakheart = "Use weak heart medication in 1971",
+  wt71 = "Weight in kilograms in 1971",
+  wt82_71 = "Weight change in kilograms",
+  wtloss = "Use weight loss medication in 1971"
+)
+
+# Specify the covariates of interest
+covariates <- setdiff(names(nhefs_1971), c("qsmk", "seqn"))
+
+# Create a TableOne object
+table1 <- CreateTableOne(vars = covariates, strata = "qsmk", data = nhefs_1971, test = FALSE)
+Ktable<-print(table1, showAllLevels = TRUE, varLabels = TRUE)
+```
+
+### **Descriptive Statistics**
+
+To understand differences between those who quit smoking and those who did not, we summarize the baseline characteristics.
+
+```{r,echo=FALSE}
+
+# Print and display Table 1
+kable(Ktable, 
+      caption = "Summary Statistics Stratified by Smoking Cessation")
+
+
+```
+
+### **Estimating the Unadjusted Average Treatment Effect (ATE) of Smoking Cessation on Health Outcomes**
+
+In this section, we estimate the **unadjusted Average Treatment Effect (ATE)** of smoking cessation on three key health outcomes:
+
+-   **Weight change (wt82_71)** between 1971 and 1982
+
+-   **Systolic blood pressure (sbp)** in 1982
+
+-   **Diastolic blood pressure (dbp)** in 1982
+
+The **ATE** is calculated as the difference in the mean outcome between individuals who **quit smoking** (treatment group) and those who **continued smoking** (control group). The standard error (SE) is computed, and a **95% confidence interval (CI)** is constructed for each outcome.
+
+```{r,echo=FALSE,message=FALSE}
+# Count number of observations in treatment and control groups
+num_t1 <- sum(nhefs_1971$qsmk == "Yes", na.rm = TRUE)  # Treatment group size
+num_c1 <- sum(nhefs_1971$qsmk == "No", na.rm = TRUE)   # Control group size
+
+### ATE for Weight Change (wt82_71)
+wc_t <- nhefs_1971$wt82_71[nhefs_1971$qsmk == "Yes"]  # Weight change in treatment group
+wc_c <- nhefs_1971$wt82_71[nhefs_1971$qsmk == "No"]   # Weight change in control group
+
+# Compute mean outcome for each group
+et_wc <- mean(wc_t, na.rm = TRUE)  # Mean weight change for treated
+ec_wc <- mean(wc_c, na.rm = TRUE)  # Mean weight change for control
+
+# Compute Unadjusted ATE
+ate_wc <- et_wc - ec_wc
+
+# Compute Standard Error
+se_wc <- sqrt(var(wc_t, na.rm = TRUE)/num_t1 + var(wc_c, na.rm = TRUE)/num_c1)
+
+# Compute 95% Confidence Interval
+conf_int_wc <- ate_wc + c(-1, 1) * qnorm(0.975) * se_wc
+
+### ATE for Systolic Blood Pressure (sbp)
+sbp_t <- nhefs_1971$sbp[nhefs_1971$qsmk == "Yes"]  # SBP in treatment group
+sbp_c <- nhefs_1971$sbp[nhefs_1971$qsmk == "No"]   # SBP in control group
+
+# Compute mean outcome for each group
+et_sbp <- mean(sbp_t, na.rm = TRUE)  # Mean SBP for treated
+ec_sbp <- mean(sbp_c, na.rm = TRUE)  # Mean SBP for control
+
+# Compute Unadjusted ATE
+ate_sbp <- et_sbp - ec_sbp
+
+# Compute Standard Error
+se_sbp <- sqrt(var(sbp_t, na.rm = TRUE)/num_t1 + var(sbp_c, na.rm = TRUE)/num_c1)
+
+# Compute 95% Confidence Interval
+conf_int_sbp <- ate_sbp + c(-1, 1) * qnorm(0.975) * se_sbp
+
+
+### ATE for Diastolic Blood Pressure (dbp)
+dbp_t <- nhefs_1971$dbp[nhefs_1971$qsmk == "Yes"]  # DBP in treatment group
+dbp_c <- nhefs_1971$dbp[nhefs_1971$qsmk == "No"]   # DBP in control group
+
+# Compute mean outcome for each group
+et_dbp <- mean(dbp_t, na.rm = TRUE)  # Mean DBP for treated
+ec_dbp <- mean(dbp_c, na.rm = TRUE)  # Mean DBP for control
+
+# Compute Unadjusted ATE
+ate_dbp <- et_dbp - ec_dbp
+
+# Compute Standard Error
+se_dbp <- sqrt(var(dbp_t, na.rm = TRUE)/num_t1 + var(dbp_c, na.rm = TRUE)/num_c1)
+
+
+# Compute 95% Confidence Interval
+conf_int_dbp <- ate_dbp + c(-1, 1) * qnorm(0.975) * se_dbp
+
+# Compute 95% Confidence Intervals
+conf_int_wc <- ate_wc + c(-1, 1) * qnorm(0.975) * se_wc
+conf_int_sbp <- ate_sbp + c(-1, 1) * qnorm(0.975) * se_sbp
+conf_int_dbp <- ate_dbp + c(-1, 1) * qnorm(0.975) * se_dbp
+
+# Create a data frame with results
+results_table <- data.frame(
+  Outcome = c("Weight Change (wt82_71)", "Systolic Blood Pressure (sbp)", "Diastolic Blood Pressure (dbp)"),
+  ATE = c(round(ate_wc, 3), round(ate_sbp, 3), round(ate_dbp, 3)),
+  `Standard Error` = c(round(se_wc, 3), round(se_sbp, 3), round(se_dbp, 3)),
+  `Confidence Interval` = c(
+    paste0("(", round(conf_int_wc[1], 3), ", ", round(conf_int_wc[2], 3), ")"),
+    paste0("(", round(conf_int_sbp[1], 3), ", ", round(conf_int_sbp[2], 3), ")"),
+    paste0("(", round(conf_int_dbp[1], 3), ", ", round(conf_int_dbp[2], 3), ")")
+  )
+)
+
+# Print as a kable table
+kable(results_table, caption = "ATE Estimates for Smoking Cessation on Health Outcomes",align = "c") 
+
+```
+
+### **Estimating the Average Treatment Effect (ATE) for Legislator Response in the Black Politicians Dataset**
+
+This section explores whether the **race of a legislator (Black or Non-Black)** influences their likelihood of responding to constituent emails. The dataset includes various district-level and legislator characteristics, with the primary treatment variable being **whether the legislator is Black (`leg_black`)** and the outcome variable being **whether they responded to the email (`responded`)**.
+
+The first step in the analysis is to prepare the dataset by cleaning and transforming variables. Categorical variables, such as **legislator race (`leg_black`)** and **email response (`responded`)**, are converted into factor variables with meaningful labels (`Yes` or `No`). Other key categorical variables, including **whether the legislator is a senator (`leg_senator`)**, **party affiliation (`leg_democrat`)**, and **whether the legislator represents the southern U.S. (`south`)**, are also converted to factors. Additionally, variable labels are assigned to provide clear descriptions for each feature in the dataset.
+
+```{r,echo=FALSE,message=FALSE,include=FALSE}
+
+# Create a copy of the dataset
+df1 <- black_politicians
+
+# Convert categorical variables to factors and assign meaningful labels
+df1$leg_black <- as.factor(df1$leg_black)
+levels(df1$leg_black) <- c("No", "Yes")
+
+df1$responded <- as.factor(df1$responded)
+levels(df1$responded) <- c("No", "Yes")
+
+df1$leg_senator <- as.factor(df1$leg_senator)
+levels(df1$leg_senator) <- c("No", "Yes")
+
+df1$leg_democrat <- as.factor(df1$leg_democrat)
+levels(df1$leg_democrat) <- c("No", "Yes")
+
+df1$south <- as.factor(df1$south)
+levels(df1$south) <- c("No", "Yes")
+
+df1 <- set_variable_labels(df1, 
+  leg_black = "Legislator Receiving Email is Black",
+  responded = "Legislator Responded to Email",
+  totalpop = "District Population",
+  medianhhincom = "District Median Household Income",
+  black_medianhh = "District Median Household Income (Black)",
+  white_medianhh = "District Median Household Income (White)",
+  blackpercent = "Percentage of District that is Black",
+  statessquireindex = "State's Squire Index",
+  nonblacknonwhite = "Legislator is Neither Black nor White",
+  urbanpercent = "Percentage of District that is Urban",
+  leg_senator = "Legislator is a Senator",
+  leg_democrat = "Legislator is in the Democratic Party",
+  south = "Legislator is in the Southern U.S."
+)
+
+# Define covariates to include in the summary table
+vars_to_include2 <- setdiff(names(df1), c('responded','leg_black'))
+
+# Create TableOne summary statistics
+t2 <- CreateTableOne(vars = vars_to_include2, data = df1, strata = 'leg_black')
+t22 <- print(t2, smd = TRUE, showAllLevels = TRUE, varLabels = TRUE)
+
+```
+
+#### **Descriptive Statistics**
+
+To understand the distribution of key district and legislator characteristics, a **summary table** is created using the `tableone` package. This table presents means and proportions for different variables, stratified by legislator race. Importantly, **standardized mean differences (SMDs)** are included to measure the balance of covariates between Black and Non-Black legislators. Large SMD values indicate potential differences in baseline characteristics, which could be confounding factors in the analysis.
+
+```{r,echo=FALSE,message=FALSE}
+# Display table using kable
+kable(t22, caption = "Summary Statistics Stratified by Legislator Race",align = "c") 
+
+
+```
+
+#### Estimating the Unadjusted Average Treatment Effect (ATE)
+
+The unadjusted ATE is computed as the difference in the mean email response rates between Black and Non-Black legislators. This calculation follows the standard ATE formula:
+
+$ATE = E[Y|T=1] - E[Y|T=0]$
+
+where ( T=1 ) represents Black legislators and ( T=0 ) represents Non-Black legislators. The mean email response rates are computed separately for each group, and their difference provides an initial estimate of the treatment effect.
+
+#### Computing Standard Errors and Confidence Intervals
+
+To assess the uncertainty of the ATE estimate, the standard error (SE) is calculated using the formula for a difference in proportions:
+
+$SE = \sqrt{\frac{p_T (1 - p_T)}{n_T} + \frac{p_C (1 - p_C)}{n_C}}$
+
+where (\$ P_T\$ ) and ( p_C ) are the response rates for Black and Non-Black legislators, respectively, and ( n_T ) and ( n_C ) are their corresponding sample sizes.
+
+Using this standard error, a **95% confidence interval (CI)** is constructed to provide a range of plausible values for the ATE:
+
+$CI = ATE \pm 1.96 \times SE$
+
+If the confidence interval includes **zero**, it suggests that the difference in response rates between Black and Non-Black legislators **may not be statistically significant**.
+
+```{r,echo=FALSE,message=FALSE}
+# Compute Unadjusted ATE for Legislator Response
+et_responded <- mean(as.numeric(df1$responded[df1$leg_black == "Yes"]) - 1, na.rm = TRUE)
+ec_responded <- mean(as.numeric(df1$responded[df1$leg_black == "No"]) - 1, na.rm = TRUE)
+
+num_t <- sum(df1$leg_black == "Yes", na.rm = TRUE)
+num_c <- sum(df1$leg_black == "No", na.rm = TRUE)
+
+# Compute Unadjusted ATE
+ate_responded <- et_responded - ec_responded
+
+
+# Compute Standard Error
+se_responded <- sqrt(et_responded * (1 - et_responded) / num_t + ec_responded * (1 - ec_responded) / num_c)
+
+# Compute 95% Confidence Interval
+conf_int_responded <- ate_responded + c(-1, 1) * qnorm(0.975) * se_responded
+
+# Create a results table for ATE
+results_table <- data.frame(
+  Outcome = "Legislator Response",
+  ATE = round(ate_responded, 3),
+  Standard_Error = round(se_responded, 3),
+  `95% Confidence Interval` = paste0("[", round(conf_int_responded[1], 3), ", ", round(conf_int_responded[2], 3), "]")
+)
+
+# Display results table
+kable(results_table, caption = "Unadjusted ATE Estimates for Legislator Response",align = "c") 
+```
+
+### **Conclusion for the Analysis of Smoking Cessation and Legislator Response Patterns**
+
+#### **Effect of Smoking Cessation on Health Outcomes**
+
+The analysis of the **National Health and Nutrition Examination Follow-up Study (NHEFS)** dataset revealed that quitting smoking had a significant impact on health outcomes. Using an **unadjusted ATE approach**, the following key results were observed:
+
+-   **Weight Change (1971–1982):** Those who quit smoking gained, on average, **2.54 kg** more weight compared to those who continued smoking. The **95% confidence interval (CI)** of **(1.61, 3.47)** indicates a statistically significant effect, confirming that smoking cessation is associated with weight gain.
+
+-   **Systolic Blood Pressure (SBP, 1982):** The estimated **ATE for SBP** was **3.99 mmHg**, with a **95% CI of (1.85, 6.13)**. This suggests that quitting smoking led to a modest increase in **systolic blood pressure**, which could have implications for cardiovascular risk management.
+
+-   **Diastolic Blood Pressure (DBP, 1982):** The **ATE for DBP** was **1.53 mmHg**, with a **95% CI of (0.34, 2.71)**. While smaller in magnitude compared to systolic pressure changes, this increase remains statistically significant.
+
+These findings support existing literature suggesting that **smoking cessation is linked to weight gain**, potentially due to changes in metabolism and lifestyle habits. However, the **increase in blood pressure** warrants further investigation, as it may be influenced by weight gain and other behavioral changes post-cessation.
+
+#### **Effect of Legislator Race on Email Response Rates**
+
+The analysis of the **Black Politicians dataset** aimed to determine whether a legislator’s race influences their likelihood of responding to constituent emails. The **unadjusted ATE estimation** yielded the following result:
+
+-   **Legislator Response Rate:** The **ATE was estimated at -0.032**, indicating that Black legislators were **3.2 percentage points less likely** to respond to constituent emails compared to Non-Black legislators. However, the **95% CI of (-0.084, 0.020)** includes **zero**, suggesting that this effect is **not statistically significant** at the 95% confidence level.
+
+This finding suggests that, while there is a small observed difference in response rates, it is not large enough to rule out random variation. Further analyses using **adjusted methods, propensity score techniques, or subgroup analyses** could help clarify whether other factors—such as district characteristics, party affiliation, or geographic location—may contribute to differences in responsiveness.
+
+### **Key Takeaways & Next Steps**
+
+1.  **For Smoking Cessation and Health Outcomes:**
+
+    -   The findings confirm that quitting smoking leads to **weight gain** and **modest increases in blood pressure**.
+
+    -   Future analyses should explore **adjusted causal estimates**, accounting for confounders like **physical activity, diet, and pre-existing health conditions**.
+
+    -   Investigating **long-term health impacts** beyond 1982 could provide deeper insights into the **trade-offs between smoking cessation and cardiovascular health**.
+
+2.  **For Legislator Response Analysis:**
+
+    -   The **racial disparity in legislator response rates was small and statistically insignificant** in the unadjusted analysis.
+
+    -   Additional research should **adjust for potential confounders** like **district demographics, party affiliation, and political competition**.
+
+    -   Exploring **interaction effects** (e.g., how district-level racial composition influences legislator response behavior) could provide further insights.
